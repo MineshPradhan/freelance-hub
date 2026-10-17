@@ -1,0 +1,21 @@
+# Secrets – never commit these
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+
+# Uploaded resumes (private user data) – keep only the folder
+uploads/resumes/*
+!uploads/resumes/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

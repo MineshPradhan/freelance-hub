@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Application{% endblock %}
+{% block content %}
+<div class="container">
+  <p><a href="/admin">&larr; Back to applications</a></p>
+  <div id="alert" class="alert hidden" role="alert"></div>
+  <div id="loading" class="loading-block">Loading…</div>
+
+  <div id="content" class="hidden">
+    <h1 id="title"></h1>
+    <div class="grid cols-2" style="align-items:start">
+      <div>
+        <div class="card"><h2>Applicant</h2><dl class="kv" id="personal"></dl></div>
+        <div class="card"><h2>Education &amp; experience</h2><dl class="kv" id="background"></dl></div>
+      </div>
+      <div>
+        <div class="card"><h2>Payment &amp; resume</h2>
+          <dl class="kv" id="payment"></dl>
+          <div style="margin-top:14px" id="resume"></div></div>
+        <div class="card"><h2>Review</h2>
+          <form id="form" novalidate>
+            <div class="field"><label for="payment_status">Payment status</label>
+              <select id="payment_status"><option value="unpaid">Not paid</option><option value="pending">Awaiting verification</option>
+                <option value="verified">Verified</option><option value="rejected">Rejected (applicant can resubmit)</option></select></div>
+            <div class="field"><label for="application_status">Application status</label>
+              <select id="application_status"><option value="draft">Draft</option><option value="under_review">Under review</option>
+                <option value="shortlisted">Shortlisted</option><option value="accepted">Accepted</option><option value="rejected">Not selected</option></select>
+              <div class="hint">Shortlisting or accepting requires verified payment. The applicant is notified by email when either status changes.</div></div>
+            <div class="field"><label for="admin_notes">Internal notes (never shown to the applicant)</label>
+              <textarea id="admin_notes" maxlength="2000"></textarea></div>
+            <button class="btn" type="submit" id="save">Save changes</button>
+          </form></div>
+      </div>
+    </div>
+    <div class="card"><h2>History</h2>
+      <div class="table-wrap"><table><thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Details</th></tr></thead>
+        <tbody id="history"><tr><td colspan="4" class="muted center">Loading…</td></tr></tbody></table></div></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  var APP_ID = {{ application_id|tojson }};
+  var alertEl = document.getElementById("alert"), loaded = null;
+
+  function row(label, value, raw) { return "<dt>" + App.esc(label) + "</dt><dd>" + (raw ? value : App.esc(value || "—")) + "</dd>"; }
+
+  async function loadHistory() {
+    try {
+      var r = await App.api("/api/admin/audit-log?limit=50&target_id=" + encodeURIComponent(APP_ID));
+      document.getElementById("history").innerHTML = r.items.length ? r.items.map(function (i) {
+        return "<tr><td>" + App.fmtDate(i.created_at, true) + "</td><td>" + App.esc(i.admin_email || "—") + "</td><td>" + App.esc(i.action) +
+          '</td><td class="small mono" style="white-space:normal">' + App.esc(JSON.stringify(i.details || {})) + "</td></tr>";
+      }).join("") : '<tr><td colspan="4" class="muted center">No admin activity yet.</td></tr>';
+    } catch (err) { /* non-critical */ }
+  }
+
+  function render(a) {
+    loaded = a;
+    document.getElementById("title").textContent = a.reference_number + " – " + a.full_name;
+    document.getElementById("personal").innerHTML = row("Name", a.full_name) + row("Contact email", a.email) +
+      row("Account email", a.account_email + (a.account_email_verified ? " (verified)" : " (not verified)")) + row("Phone", a.phone) + row("Date of birth", a.date_of_birth) +
+      row("Address", [a.address, a.city, a.state, a.postal_code, a.country].filter(Boolean).join(", "));
+    document.getElementById("background").innerHTML = row("Qualification", a.education) + row("Institution", a.institution) + row("Field of study", a.field_of_study) +
+      row("Graduation year", a.graduation_year) + row("Experience", a.experience_level) + row("Employer", a.current_employer) + row("Job title", a.job_title) + row("Summary", a.summary);
+    document.getElementById("payment").innerHTML = row("Transaction ID", a.transaction_id) + row("Amount", a.payment_amount) +
+      row("Payment submitted", App.fmtDate(a.payment_submitted_at, true)) + row("Payment status", App.paymentBadge(a.payment_status), true) +
+      row("Application status", App.statusBadge(a.application_status), true) + row("Submitted", App.fmtDate(a.submitted_at, true));
+    document.getElementById("resume").innerHTML = a.resume_url
+      ? '<a class="btn secondary" href="' + App.esc(a.resume_url) + '">Download resume' + (a.resume_original_name ? " (" + App.esc(a.resume_original_name) + ")" : "") + "</a>"
+      : '<span class="muted">No resume uploaded.</span>';
+    document.getElementById("payment_status").value = a.payment_status;
+    document.getElementById("application_status").value = a.application_status;
+    document.getElementById("admin_notes").value = a.admin_notes || "";
+  }
+
+  document.getElementById("form").addEventListener("submit", async function (e) {
+    e.preventDefault(); App.hideAlert(alertEl);
+    var body = {}, ps = document.getElementById("payment_status").value, as = document.getElementById("application_status").value, notes = document.getElementById("admin_notes").value;
+    if (ps !== loaded.payment_status) body.payment_status = ps;
+    if (as !== loaded.application_status) body.application_status = as;
+    if (notes !== (loaded.admin_notes || "")) body.admin_notes = notes;
+    if (!Object.keys(body).length) return App.showAlert(alertEl, "No changes to save.", "info");
+    var btn = document.getElementById("save"); App.setBusy(btn, true, "Saving…");
+    try {
+      await App.api("/api/admin/applications/" + encodeURIComponent(APP_ID), { method: "PATCH", body: body });
+      render(await App.api("/api/admin/applications/" + encodeURIComponent(APP_ID)));
+      App.showAlert(alertEl, "Changes saved.", "success"); loadHistory();
+    } catch (err) { App.showAlert(alertEl, err.message, "error"); }
+    App.setBusy(btn, false);
+  });
+
+  (async function () {
+    var user = await App.requireAuth({ admin: true }); if (!user) return;
+    try {
+      render(await App.api("/api/admin/applications/" + encodeURIComponent(APP_ID)));
+      document.getElementById("loading").classList.add("hidden"); document.getElementById("content").classList.remove("hidden");
+      loadHistory();
+    } catch (err) { document.getElementById("loading").classList.add("hidden"); App.showAlert(alertEl, err.message, "error"); }
+  })();
+</script>
+{% endblock %}

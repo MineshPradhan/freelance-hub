@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<div class="container">
+  <section class="hero">
+    <h1>Apply for your assessment online</h1>
+    <p class="lead">Create an account, submit your profile and resume, pay the assessment fee, and track your application — all in one place.</p>
+    <div class="actions" style="justify-content:center" id="cta">
+      <a class="btn" href="/register">Create an account</a>
+      <a class="btn secondary" href="/login">Log in</a>
+    </div>
+  </section>
+
+  <section style="margin-top:32px">
+    <ol class="steps-list">
+      <li><h3>Register</h3><p class="muted small">Sign up with your email and verify your address.</p></li>
+      <li><h3>Apply</h3><p class="muted small">Fill in your personal, education and experience details and upload your resume.</p></li>
+      <li><h3>Pay the fee</h3><p class="muted small">Pay via UPI/QR and submit your transaction ID.</p></li>
+      <li><h3>Track status</h3><p class="muted small">Our team verifies your payment and reviews your application.</p></li>
+    </ol>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  (async function () {
+    var user = await App.currentUser().catch(function () { return null; });
+    if (user) {
+      var href = user.role === "admin" ? "/admin" : "/dashboard";
+      document.getElementById("cta").innerHTML = '<a class="btn" href="' + href + '">Go to your ' + (user.role === "admin" ? "admin panel" : "dashboard") + '</a>';
+    }
+  })();
+</script>
+{% endblock %}

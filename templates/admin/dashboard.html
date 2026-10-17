@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<div class="container">
+  <h1>Admin panel</h1>
+  <div id="alert" class="alert hidden" role="alert"></div>
+
+  <div class="grid cols-4" id="stats" style="margin-bottom:24px"></div>
+
+  <div class="tabs">
+    <button type="button" class="active" data-tab="apps">Applications</button>
+    <button type="button" data-tab="audit">Audit log</button>
+  </div>
+
+  <section id="tab-apps">
+    <form class="filters" id="filters" novalidate>
+      <input type="text" id="q" placeholder="Search name, email, reference or transaction ID" maxlength="100">
+      <select id="f-status"><option value="">All application statuses</option>
+        <option value="under_review">Under review</option><option value="shortlisted">Shortlisted</option>
+        <option value="accepted">Accepted</option><option value="rejected">Not selected</option><option value="draft">Draft (not submitted)</option></select>
+      <select id="f-payment"><option value="">All payment statuses</option>
+        <option value="pending">Awaiting verification</option><option value="verified">Verified</option>
+        <option value="rejected">Rejected</option><option value="unpaid">Not paid</option></select>
+      <button class="btn" type="submit">Apply filters</button>
+    </form>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Reference</th><th>Applicant</th><th>Email</th><th>Transaction ID</th><th>Payment</th><th>Status</th><th>Submitted</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="7" class="center muted">Loading…</td></tr></tbody>
+    </table></div>
+    <div class="pager"><span class="small muted" id="count"></span>
+      <span><button class="btn secondary small" id="prev" type="button">Previous</button>
+      <button class="btn secondary small" id="next" type="button">Next</button></span></div>
+  </section>
+
+  <section id="tab-audit" class="hidden">
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Target</th><th>Details</th><th>IP</th></tr></thead>
+      <tbody id="audit-rows"><tr><td colspan="6" class="center muted">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  var alertEl = document.getElementById("alert"), page = 1, pageSize = 20, total = 0;
+
+  function stat(label, value) { return '<div class="card stat"><div class="num">' + App.esc(value) + '</div><div class="lbl">' + App.esc(label) + "</div></div>"; }
+  async function loadStats() {
+    var s = await App.api("/api/admin/stats");
+    document.getElementById("stats").innerHTML = stat("Submitted applications", s.total_submitted) + stat("Payments awaiting verification", s.payment.pending) +
+      stat("Payments verified", s.payment.verified) + stat("Accepted", s.application.accepted);
+  }
+
+  async function loadApps() {
+    var p = new URLSearchParams({ page: page, page_size: pageSize });
+    var q = document.getElementById("q").value.trim(), st = document.getElementById("f-status").value, pay = document.getElementById("f-payment").value;
+    if (q) p.set("q", q); if (st) p.set("status", st); if (pay) p.set("payment_status", pay);
+    var tbody = document.getElementById("rows");
+    try {
+      var r = await App.api("/api/admin/applications?" + p.toString());
+      total = r.total;
+      tbody.innerHTML = r.items.length ? r.items.map(function (i) {
+        return '<tr class="clickable" data-id="' + App.esc(i.id) + '"><td class="mono">' + App.esc(i.reference_number) + "</td><td>" + App.esc(i.full_name) +
+          "</td><td>" + App.esc(i.email) + '</td><td class="mono">' + App.esc(i.transaction_id || "—") + "</td><td>" + App.paymentBadge(i.payment_status) +
+          "</td><td>" + App.statusBadge(i.application_status) + "</td><td>" + App.fmtDate(i.submitted_at) + "</td></tr>";
+      }).join("") : '<tr><td colspan="7" class="center muted">No applications found.</td></tr>';
+      var from = total ? (page - 1) * pageSize + 1 : 0, to = Math.min(page * pageSize, total);
+      document.getElementById("count").textContent = from + "–" + to + " of " + total;
+      document.getElementById("prev").disabled = page <= 1; document.getElementById("next").disabled = page * pageSize >= total;
+    } catch (err) { App.showAlert(alertEl, err.message, "error"); }
+  }
+
+  async function loadAudit() {
+    var tbody = document.getElementById("audit-rows");
+    try {
+      var r = await App.api("/api/admin/audit-log?limit=200");
+      tbody.innerHTML = r.items.length ? r.items.map(function (i) {
+        return "<tr><td>" + App.fmtDate(i.created_at, true) + "</td><td>" + App.esc(i.admin_email || "—") + "</td><td>" + App.esc(i.action) + "</td><td>" +
+          App.esc((i.target_type || "") + " " + String(i.target_id || "").slice(0, 8)) + '</td><td class="small mono" style="white-space:normal;max-width:360px">' +
+          App.esc(JSON.stringify(i.details || {})) + "</td><td>" + App.esc(i.ip_address || "") + "</td></tr>";
+      }).join("") : '<tr><td colspan="6" class="center muted">No audit entries yet.</td></tr>';
+    } catch (err) { App.showAlert(alertEl, err.message, "error"); }
+  }
+
+  document.getElementById("rows").addEventListener("click", function (e) {
+    var tr = e.target.closest("tr[data-id]"); if (tr) location.href = "/admin/application/" + encodeURIComponent(tr.dataset.id);
+  });
+  document.getElementById("filters").addEventListener("submit", function (e) { e.preventDefault(); page = 1; loadApps(); });
+  document.getElementById("prev").addEventListener("click", function () { if (page > 1) { page--; loadApps(); } });
+  document.getElementById("next").addEventListener("click", function () { if (page * pageSize < total) { page++; loadApps(); } });
+  document.querySelectorAll(".tabs button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.querySelectorAll(".tabs button").forEach(function (x) { x.classList.toggle("active", x === b); });
+      document.getElementById("tab-apps").classList.toggle("hidden", b.dataset.tab !== "apps");
+      document.getElementById("tab-audit").classList.toggle("hidden", b.dataset.tab !== "audit");
+      if (b.dataset.tab === "audit") loadAudit();
+    });
+  });
+
+  (async function () {
+    var user = await App.requireAuth({ admin: true }); if (!user) return;
+    loadStats().catch(function (err) { App.showAlert(alertEl, err.message, "error"); });
+    loadApps();
+  })();
+</script>
+{% endblock %}

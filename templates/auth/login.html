@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Log in{% endblock %}
+{% block content %}
+<div class="container narrow">
+  <div class="card">
+    <h1>Log in</h1>
+    <div id="alert" class="alert hidden" role="alert"></div>
+    <form id="form" novalidate>
+      <div class="field"><label for="email">Email</label>
+        <input type="email" id="email" name="email" autocomplete="email" required></div>
+      <div class="field"><label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required></div>
+      <button class="btn block" type="submit" id="submit">Log in</button>
+    </form>
+    <p class="center small" style="margin:18px 0 6px"><a href="/auth/forgot-password">Forgot your password?</a></p>
+    <p class="center small muted" style="margin:0">New here? <a href="/register">Create an account</a></p>
+    <p class="center small hidden" id="resend-wrap" style="margin-top:12px"><button type="button" class="linklike" id="resend" style="color:var(--primary)">Resend verification email</button></p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  var form = document.getElementById("form"), alertEl = document.getElementById("alert"), btn = document.getElementById("submit");
+  var params = new URLSearchParams(location.search);
+  if (params.get("reset")) App.showAlert(alertEl, "Password updated. Please log in.", "success");
+  if (params.get("verified")) App.showAlert(alertEl, "Email verified. Please log in.", "success");
+
+  App.currentUser().then(function (u) { if (u) location.href = u.role === "admin" ? "/admin" : "/dashboard"; }).catch(function () {});
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault(); App.hideAlert(alertEl); document.getElementById("resend-wrap").classList.add("hidden");
+    if (!form.elements.email.checkValidity() || !form.elements.password.value) return App.showAlert(alertEl, "Enter your email and password.", "error");
+    App.setBusy(btn, true, "Logging in…");
+    try {
+      var res = await App.api("/api/auth/login", { method: "POST", body: { email: form.elements.email.value, password: form.elements.password.value } });
+      location.href = res.redirect || "/dashboard";
+    } catch (err) {
+      App.showAlert(alertEl, err.message, "error"); App.setBusy(btn, false);
+      if (err.status === 403 && /verify/i.test(err.message)) document.getElementById("resend-wrap").classList.remove("hidden");
+    }
+  });
+
+  document.getElementById("resend").addEventListener("click", async function () {
+    try { var r = await App.api("/api/auth/resend-verification", { method: "POST", body: { email: form.elements.email.value } }); App.showAlert(alertEl, r.message, "success"); }
+    catch (err) { App.showAlert(alertEl, err.message, "error"); }
+  });
+</script>
+{% endblock %}

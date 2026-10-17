@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}Apply{% endblock %}
+{% block content %}
+<div class="container medium">
+  <h1>{{ assessment_name }} – Application</h1>
+  <p class="muted">Assessment fee: <strong>{{ assessment_fee }} {{ assessment_currency }}</strong> (paid in the next step).</p>
+
+  <div id="alert" class="alert hidden" role="alert"></div>
+  <div id="loading" class="loading-block">Loading…</div>
+  <div id="locked" class="card hidden">
+    <h2>Application already submitted</h2>
+    <p>Your application has been submitted and can no longer be edited.</p>
+    <a class="btn" href="/dashboard">Go to dashboard</a>
+  </div>
+
+  <div id="wizard" class="card hidden">
+    <div class="progress" id="progress"></div>
+    <form id="form" novalidate enctype="multipart/form-data">
+
+      <section class="step" data-title="Personal">
+        <h2>Personal information</h2>
+        <div class="field"><label for="full_name">Full name *</label>
+          <input type="text" id="full_name" name="full_name" required minlength="2" maxlength="100" autocomplete="name"></div>
+        <div class="grid cols-2">
+          <div class="field"><label for="email">Contact email *</label>
+            <input type="email" id="email" name="email" required autocomplete="email"></div>
+          <div class="field"><label for="phone">Phone *</label>
+            <input type="tel" id="phone" name="phone" required maxlength="20" pattern="\+?[0-9 \(\)\-]{7,20}" autocomplete="tel"></div>
+        </div>
+        <div class="field"><label for="date_of_birth">Date of birth *</label>
+          <input type="date" id="date_of_birth" name="date_of_birth" required></div>
+      </section>
+
+      <section class="step" data-title="Address">
+        <h2>Address</h2>
+        <div class="field"><label for="address">Street address *</label>
+          <input type="text" id="address" name="address" required minlength="5" maxlength="500" autocomplete="street-address"></div>
+        <div class="grid cols-2">
+          <div class="field"><label for="city">City *</label><input type="text" id="city" name="city" required maxlength="100"></div>
+          <div class="field"><label for="state">State / Province *</label><input type="text" id="state" name="state" required maxlength="100"></div>
+          <div class="field"><label for="postal_code">Postal code *</label><input type="text" id="postal_code" name="postal_code" required maxlength="20"></div>
+          <div class="field"><label for="country">Country *</label><input type="text" id="country" name="country" required maxlength="100" value="India"></div>
+        </div>
+      </section>
+
+      <section class="step" data-title="Education">
+        <h2>Education</h2>
+        <div class="field"><label for="education">Highest qualification *</label>
+          <select id="education" name="education" required>
+            <option value="">Select…</option>
+            <option>High school</option><option>Diploma</option><option>Bachelor's degree</option>
+            <option>Master's degree</option><option>Doctorate</option><option>Other</option>
+          </select></div>
+        <div class="field"><label for="institution">Institution *</label><input type="text" id="institution" name="institution" required maxlength="200"></div>
+        <div class="grid cols-2">
+          <div class="field"><label for="field_of_study">Field of study</label><input type="text" id="field_of_study" name="field_of_study" maxlength="200"></div>
+          <div class="field"><label for="graduation_year">Graduation year</label><input type="number" id="graduation_year" name="graduation_year" min="1970" max="2100"></div>
+        </div>
+      </section>
+
+      <section class="step" data-title="Experience">
+        <h2>Experience &amp; resume</h2>
+        <div class="field"><label for="experience_level">Experience level *</label>
+          <select id="experience_level" name="experience_level" required>
+            <option value="">Select…</option>
+            <option>Fresher (0 years)</option><option>1-3 years</option><option>3-5 years</option><option>5+ years</option>
+          </select></div>
+        <div class="grid cols-2">
+          <div class="field"><label for="current_employer">Current / last employer</label><input type="text" id="current_employer" name="current_employer" maxlength="200"></div>
+          <div class="field"><label for="job_title">Job title</label><input type="text" id="job_title" name="job_title" maxlength="200"></div>
+        </div>
+        <div class="field"><label for="summary">Brief summary of your experience &amp; skills</label>
+          <textarea id="summary" name="summary" maxlength="2000"></textarea></div>
+        <div class="field"><label for="resume">Resume (PDF, DOC or DOCX, max 5 MB) <span id="resume-req">*</span></label>
+          <input type="file" id="resume" name="resume" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+          <div class="hint" id="resume-hint"></div></div>
+      </section>
+
+      <section class="step" data-title="Review">
+        <h2>Review your application</h2>
+        <div class="review" id="review"></div>
+        <p class="small muted" style="margin-top:16px">After saving you will be taken to the payment step. You can come back and edit until your payment is submitted.</p>
+      </section>
+
+      <div class="actions">
+        <button type="button" class="btn secondary" id="back">Back</button>
+        <button type="button" class="btn" id="next">Next</button>
+        <button type="submit" class="btn hidden" id="submit">Save &amp; continue to payment</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  var MAX_BYTES = 5 * 1024 * 1024;
+  var form = document.getElementById("form"), alertEl = document.getElementById("alert");
+  var steps = Array.prototype.slice.call(document.querySelectorAll(".step"));
+  var current = 0, hasExistingResume = false, existingResumeName = "";
+  var LABELS = { full_name: "Full name", email: "Email", phone: "Phone", date_of_birth: "Date of birth", address: "Address", city: "City",
+    state: "State / Province", postal_code: "Postal code", country: "Country", education: "Qualification", institution: "Institution",
+    field_of_study: "Field of study", graduation_year: "Graduation year", experience_level: "Experience level",
+    current_employer: "Employer", job_title: "Job title", summary: "Summary", resume: "Resume" };
+
+  function renderProgress() {
+    document.getElementById("progress").innerHTML = steps.map(function (s, i) {
+      var cls = i < current ? "done" : (i === current ? "current" : "");
+      return '<div class="seg ' + cls + '">' + App.esc(s.dataset.title) + "</div>";
+    }).join("");
+  }
+  function show(i) {
+    current = i;
+    steps.forEach(function (s, idx) { s.classList.toggle("active", idx === i); });
+    document.getElementById("back").style.visibility = i === 0 ? "hidden" : "visible";
+    document.getElementById("next").classList.toggle("hidden", i === steps.length - 1);
+    document.getElementById("submit").classList.toggle("hidden", i !== steps.length - 1);
+    if (i === steps.length - 1) renderReview();
+    renderProgress(); window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function validateStep(i) {
+    var fields = steps[i].querySelectorAll("input, select, textarea");
+    for (var k = 0; k < fields.length; k++) {
+      var f = fields[k];
+      if (f.type === "file") { if (!validateResume(true)) return false; continue; }
+      if (!f.checkValidity()) { f.reportValidity(); return false; }
+      if (f.type === "date" && f.value) {
+        var d = new Date(f.value), age = (Date.now() - d.getTime()) / 31557600000;
+        if (age < 16 || age > 100) { f.setCustomValidity("Applicants must be between 16 and 100 years old"); f.reportValidity(); f.setCustomValidity(""); return false; }
+      }
+    }
+    return true;
+  }
+  function validateResume(required) {
+    var input = document.getElementById("resume"), file = input.files[0];
+    if (!file) {
+      if (required && !hasExistingResume) { App.showAlert(alertEl, "Please upload your resume.", "error"); return false; }
+      return true;
+    }
+    if (!/\.(pdf|docx?|PDF|DOCX?)$/.test(file.name)) { App.showAlert(alertEl, "Resume must be a PDF, DOC or DOCX file.", "error"); input.value = ""; return false; }
+    if (file.size > MAX_BYTES) { App.showAlert(alertEl, "Resume must be 5 MB or smaller.", "error"); input.value = ""; return false; }
+    return true;
+  }
+  function renderReview() {
+    var rows = Object.keys(LABELS).map(function (k) {
+      var v;
+      if (k === "resume") { var f = document.getElementById("resume").files[0]; v = f ? f.name : (existingResumeName || "Previously uploaded resume"); }
+      else v = form.elements[k] ? form.elements[k].value : "";
+      return v ? "<dt>" + App.esc(LABELS[k]) + "</dt><dd>" + App.esc(v) + "</dd>" : "";
+    }).join("");
+    document.getElementById("review").innerHTML = "<dl>" + rows + "</dl>";
+  }
+  function setValue(name, value) {
+    var el = form.elements[name]; if (!el || value === null || value === undefined || value === "") return;
+    if (el.tagName === "SELECT") { var has = Array.prototype.some.call(el.options, function (o) { return o.value === value || o.text === value; });
+      if (!has) { var o = document.createElement("option"); o.textContent = value; el.appendChild(o); } }
+    el.value = value;
+  }
+
+  document.getElementById("next").addEventListener("click", function () { App.hideAlert(alertEl); if (validateStep(current)) show(current + 1); });
+  document.getElementById("back").addEventListener("click", function () { App.hideAlert(alertEl); show(current - 1); });
+  document.getElementById("resume").addEventListener("change", function () { App.hideAlert(alertEl); validateResume(false); });
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault(); App.hideAlert(alertEl);
+    for (var i = 0; i < steps.length - 1; i++) { if (!validateStep(i)) { show(i); return; } }
+    var fd = new FormData(form);
+    var file = document.getElementById("resume").files[0];
+    if (!file) fd.delete("resume");
+    var btn = document.getElementById("submit");
+    App.setBusy(btn, true, "Saving…");
+    try { await App.api("/api/applicant/profile", { method: "POST", body: fd }); location.href = "/payment"; }
+    catch (err) {
+      App.setBusy(btn, false);
+      if (err.status === 401) return (location.href = "/login");
+      if (err.status === 409) { document.getElementById("wizard").classList.add("hidden"); document.getElementById("locked").classList.remove("hidden"); }
+      App.showAlert(alertEl, err.message, "error");
+    }
+  });
+
+  (async function init() {
+    var user = await App.requireAuth(); if (!user) return;
+    if (user.role === "admin") { location.href = "/admin"; return; }
+    try {
+      var s = await App.api("/api/applicant/profile");
+      document.getElementById("loading").classList.add("hidden");
+      var a = s.application;
+      if (a && a.payment_status !== "unpaid" && a.payment_status !== "rejected") { document.getElementById("locked").classList.remove("hidden"); return; }
+      document.getElementById("wizard").classList.remove("hidden");
+      setValue("full_name", (a && a.full_name) || s.user.full_name);
+      setValue("email", (a && a.email) || s.user.email);
+      if (a) {
+        ["phone", "date_of_birth", "address", "city", "state", "postal_code", "country", "education", "institution", "field_of_study",
+         "graduation_year", "experience_level", "current_employer", "job_title", "summary"].forEach(function (k) { setValue(k, a[k]); });
+        hasExistingResume = !!a.has_resume; existingResumeName = a.resume_original_name || "";
+        if (hasExistingResume) {
+          document.getElementById("resume-req").classList.add("hidden");
+          document.getElementById("resume-hint").textContent = "Current file: " + existingResumeName + ". Choose a file only if you want to replace it.";
+        }
+      }
+      show(0);
+    } catch (err) { document.getElementById("loading").classList.add("hidden"); App.showAlert(alertEl, err.message, "error"); }
+  })();
+</script>
+{% endblock %}

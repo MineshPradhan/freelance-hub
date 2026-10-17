@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="container medium">
+  <h1>Your dashboard</h1>
+  <p class="muted">{{ assessment_name }}</p>
+  <div id="alert" class="alert hidden" role="alert"></div>
+  <div id="loading" class="loading-block">Loading…</div>
+
+  <div id="content" class="hidden">
+    <div class="card" id="next-card"></div>
+
+    <div class="card hidden" id="app-card">
+      <h2>Application status</h2>
+      <ul class="timeline" id="timeline"></ul>
+      <dl class="kv" style="margin-top:20px">
+        <dt>Reference</dt><dd class="mono" id="ref"></dd>
+        <dt>Submitted on</dt><dd id="submitted"></dd>
+        <dt>Transaction ID</dt><dd class="mono" id="txn"></dd>
+        <dt>Payment</dt><dd id="pay"></dd>
+        <dt>Application</dt><dd id="status"></dd>
+      </dl>
+    </div>
+
+    <div class="card hidden" id="profile-card">
+      <h2>Your profile</h2>
+      <dl class="kv" id="profile"></dl>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  function row(label, value) { return value ? "<dt>" + App.esc(label) + "</dt><dd>" + App.esc(value) + "</dd>" : ""; }
+
+  (async function () {
+    var user = await App.requireAuth(); if (!user) return;
+    if (user.role === "admin") { location.href = "/admin"; return; }
+    try {
+      var s = await App.api("/api/applicant/status");
+      document.getElementById("loading").classList.add("hidden");
+      document.getElementById("content").classList.remove("hidden");
+      var a = s.application, next = document.getElementById("next-card"), fee = App.fmtMoney(s.assessment.fee, s.assessment.currency);
+
+      if (s.next_step === "apply") {
+        next.innerHTML = "<h2>Welcome, " + App.esc(s.user.full_name) + "</h2><p>You have not submitted an application yet. Fill in your details and upload your resume to get started.</p>" +
+          '<a class="btn" href="/apply">' + (a ? "Continue application" : "Start application") + "</a>";
+      } else if (s.next_step === "payment") {
+        var rejected = a.payment_status === "rejected";
+        next.innerHTML = "<h2>" + (rejected ? "Payment needs attention" : "Complete your payment") + "</h2><p>" +
+          (rejected ? "Your payment details were rejected. Please check your transaction ID and submit again." : "Your application is saved. Pay the assessment fee of <strong>" + App.esc(fee) + "</strong> to finish.") +
+          '</p><div class="actions" style="justify-content:flex-start"><a class="btn" href="/payment">Go to payment</a><a class="btn secondary" href="/apply">Edit application</a></div>';
+      } else {
+        next.innerHTML = "<h2>You're all set, " + App.esc(s.user.full_name) + "</h2><p>Your application is with our team. We will email you when the status changes.</p>" +
+          '<a class="btn secondary" href="/confirmation">View confirmation</a>';
+      }
+
+      if (a && s.next_step === "track") {
+        document.getElementById("app-card").classList.remove("hidden");
+        document.getElementById("ref").textContent = a.reference_number;
+        document.getElementById("submitted").textContent = App.fmtDate(a.submitted_at, true);
+        document.getElementById("txn").textContent = a.transaction_id || "—";
+        document.getElementById("pay").innerHTML = App.paymentBadge(a.payment_status);
+        document.getElementById("status").innerHTML = App.statusBadge(a.application_status);
+        var verified = a.payment_status === "verified", decided = ["accepted", "rejected"].indexOf(a.application_status) >= 0;
+        var items = [["Application submitted", true, false], ["Payment verified", verified, !verified],
+                     ["Reviewed by our team", ["shortlisted", "accepted", "rejected"].indexOf(a.application_status) >= 0, verified && !decided],
+                     ["Final decision", decided, false]];
+        document.getElementById("timeline").innerHTML = items.map(function (i) {
+          return '<li class="' + (i[1] ? "done" : (i[2] ? "current" : "")) + '">' + App.esc(i[0]) + "</li>";
+        }).join("");
+      }
+      if (a) {
+        document.getElementById("profile-card").classList.remove("hidden");
+        document.getElementById("profile").innerHTML = row("Name", a.full_name) + row("Email", a.email) + row("Phone", a.phone) +
+          row("Address", [a.address, a.city, a.state, a.postal_code, a.country].filter(Boolean).join(", ")) +
+          row("Education", [a.education, a.field_of_study, a.institution].filter(Boolean).join(" · ")) +
+          row("Experience", [a.experience_level, a.job_title, a.current_employer].filter(Boolean).join(" · ")) +
+          row("Resume", a.resume_original_name);
+      }
+    } catch (err) { document.getElementById("loading").classList.add("hidden"); App.showAlert(document.getElementById("alert"), err.message, "error"); }
+  })();
+</script>
+{% endblock %}

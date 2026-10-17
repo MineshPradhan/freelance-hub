@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Confirmation{% endblock %}
+{% block content %}
+<div class="container medium">
+  <div id="alert" class="alert hidden" role="alert"></div>
+  <div id="loading" class="loading-block">Loading…</div>
+  <div id="content" class="card hidden">
+    <div class="center">
+      <div style="font-size:2.4rem">✅</div>
+      <h1>Application submitted</h1>
+      <p class="muted">Keep your reference number for any correspondence.</p>
+      <p class="amount mono" id="ref"></p>
+    </div>
+    <dl class="kv" style="margin-top:20px">
+      <dt>Applicant</dt><dd id="name"></dd>
+      <dt>Submitted on</dt><dd id="submitted"></dd>
+      <dt>Transaction ID</dt><dd class="mono" id="txn"></dd>
+      <dt>Payment status</dt><dd id="pay"></dd>
+      <dt>Application status</dt><dd id="status"></dd>
+    </dl>
+    <p class="small muted" style="margin-top:18px">Payments are verified manually, which may take some time. We will email you when the status changes.</p>
+    <div class="actions" style="justify-content:center;margin-top:18px">
+      <button class="btn secondary" type="button" onclick="window.print()">Print</button>
+      <a class="btn" href="/dashboard">Go to dashboard</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  (async function () {
+    var user = await App.requireAuth(); if (!user) return;
+    try {
+      var s = await App.api("/api/applicant/status");
+      document.getElementById("loading").classList.add("hidden");
+      if (s.next_step !== "track") { location.href = s.next_step === "apply" ? "/apply" : "/payment"; return; }
+      var a = s.application;
+      document.getElementById("ref").textContent = a.reference_number;
+      document.getElementById("name").textContent = a.full_name;
+      document.getElementById("submitted").textContent = App.fmtDate(a.submitted_at, true);
+      document.getElementById("txn").textContent = a.transaction_id || "—";
+      document.getElementById("pay").innerHTML = App.paymentBadge(a.payment_status);
+      document.getElementById("status").innerHTML = App.statusBadge(a.application_status);
+      document.getElementById("content").classList.remove("hidden");
+    } catch (err) { document.getElementById("loading").classList.add("hidden"); App.showAlert(document.getElementById("alert"), err.message, "error"); }
+  })();
+</script>
+{% endblock %}

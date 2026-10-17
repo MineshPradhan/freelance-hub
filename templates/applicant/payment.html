@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Payment{% endblock %}
+{% block content %}
+<div class="container medium">
+  <h1>Pay the assessment fee</h1>
+  <div id="alert" class="alert hidden" role="alert"></div>
+  <div id="loading" class="loading-block">Loading…</div>
+
+  <div id="pay-card" class="card hidden">
+    <div class="pay-box">
+      <img src="/static/qrcode.jpeg" alt="UPI payment QR code" width="240" height="240">
+      <div>
+        <div class="muted small">{{ assessment_name }}</div>
+        <div class="amount">{{ assessment_fee }} {{ assessment_currency }}</div>
+        <dl class="kv" style="margin-top:14px">
+          <dt>Pay to</dt><dd>{{ payment_account_name or "—" }}</dd>
+          <dt>UPI ID</dt>
+          <dd class="copy-row"><span class="mono">{{ payment_upi_id or "—" }}</span>
+            {% if payment_upi_id %}<button type="button" class="btn secondary small" id="copy-upi">Copy</button>{% endif %}</dd>
+        </dl>
+      </div>
+    </div>
+    <hr style="border:0;border-top:1px solid var(--border);margin:24px 0">
+    <ol class="small" style="padding-left:18px;margin-top:0">
+      <li>Scan the QR code or use the UPI ID above to pay <strong>{{ assessment_fee }} {{ assessment_currency }}</strong>.</li>
+      <li>Copy the transaction / UTR reference shown by your payment app.</li>
+      <li>Enter it below. Our team will verify the payment manually — nothing is approved automatically.</li>
+    </ol>
+    <form id="form" novalidate>
+      <div class="field"><label for="transaction_id">Transaction ID / UTR *</label>
+        <input type="text" id="transaction_id" name="transaction_id" required minlength="6" maxlength="40" pattern="[A-Za-z0-9_\-]+" autocomplete="off">
+        <div class="hint">6–40 characters: letters, numbers, “-” or “_”.</div></div>
+      <div class="actions">
+        <a class="btn secondary" href="/apply">Edit application</a>
+        <button class="btn" type="submit" id="submit">Submit payment details</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="submitted-card" class="card hidden">
+    <h2>Payment details received</h2>
+    <p>Your transaction ID <strong class="mono" id="txn"></strong> is awaiting verification by our team.</p>
+    <a class="btn" href="/confirmation">View confirmation</a>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  var UPI = {{ payment_upi_id|tojson }};
+  var alertEl = document.getElementById("alert"), form = document.getElementById("form");
+  var copyBtn = document.getElementById("copy-upi"); if (copyBtn) copyBtn.addEventListener("click", function () { App.copyText(UPI, copyBtn); });
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault(); App.hideAlert(alertEl);
+    var input = form.elements.transaction_id;
+    if (!input.checkValidity()) { input.reportValidity(); return; }
+    var btn = document.getElementById("submit"); App.setBusy(btn, true, "Submitting…");
+    try { await App.api("/api/applicant/payment", { method: "POST", body: { transaction_id: input.value } }); location.href = "/confirmation"; }
+    catch (err) { App.setBusy(btn, false); App.showAlert(alertEl, err.message, "error"); }
+  });
+
+  (async function () {
+    var user = await App.requireAuth(); if (!user) return;
+    try {
+      var s = await App.api("/api/applicant/status");
+      document.getElementById("loading").classList.add("hidden");
+      if (s.next_step === "apply") { location.href = "/apply"; return; }
+      var a = s.application;
+      if (a.payment_status === "rejected") App.showAlert(alertEl, "Your previous payment details were rejected. Please check the transaction ID and submit again.", "warn");
+      if (s.next_step === "track") {
+        document.getElementById("txn").textContent = a.transaction_id || "";
+        document.getElementById("submitted-card").classList.remove("hidden");
+      } else { document.getElementById("pay-card").classList.remove("hidden"); }
+    } catch (err) { document.getElementById("loading").classList.add("hidden"); App.showAlert(alertEl, err.message, "error"); }
+  })();
+</script>
+{% endblock %}
